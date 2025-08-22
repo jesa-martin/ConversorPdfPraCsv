@@ -15,10 +15,8 @@ class PDFtoCSVConverter:
         
         self.config_file = 'config.ini'
         
-        # --- Alteração aqui: Configura o logger para arquivo externo ---
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
-        # Limpa handlers existentes para evitar duplicação
         if self.logger.hasHandlers():
             self.logger.handlers.clear()
         
@@ -26,9 +24,7 @@ class PDFtoCSVConverter:
         log_format = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%Y-%m-%d %H:%M:%S')
         file_handler.setFormatter(log_format)
         self.logger.addHandler(file_handler)
-        # --- Fim da alteração ---
         
-        # Variáveis
         self.pdf_path = tk.StringVar()
         self.auto_save = tk.BooleanVar(value=True)
         self.csv_path = tk.StringVar()
@@ -36,7 +32,6 @@ class PDFtoCSVConverter:
         self.debug_mode = tk.BooleanVar(value=True)
         self.last_dir = tk.StringVar()
         
-        # Variáveis para a substituição do nome do plano
         self.find_text = tk.StringVar()
         self.replace_text = tk.StringVar()
         self.plan_replacements = {}
@@ -81,8 +76,7 @@ class PDFtoCSVConverter:
         main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.grid_columnconfigure(0, weight=1)
         
-        # A linha 5 agora é a que precisa se expandir
-        main_frame.grid_rowconfigure(5, weight=1) 
+        main_frame.grid_rowconfigure(5, weight=1)
 
         pdf_frame = ttk.LabelFrame(main_frame, text="Arquivo PDF", padding=10)
         pdf_frame.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 10))
@@ -101,7 +95,7 @@ class PDFtoCSVConverter:
         self.csv_button = ttk.Button(output_frame, text="Procurar", command=self.select_output, state='disabled')
         self.csv_button.grid(row=0, column=1, padx=(10, 0), pady=5)
         
-        replace_frame = ttk.LabelFrame(main_frame, text="Regras de Substituição", padding=10)
+        replace_frame = ttk.LabelFrame(main_frame, text="Alteração de nome de Plano", padding=10)
         replace_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(20, 0))
         replace_frame.grid_columnconfigure(0, weight=1)
         replace_frame.grid_columnconfigure(1, weight=1)
@@ -128,17 +122,17 @@ class PDFtoCSVConverter:
         ttk.Button(main_frame, text="Converter para CSV", command=self.convert, style='Accent.TButton').grid(row=4, column=0, columnspan=3, pady=25)
         
         ttk.Label(main_frame, textvariable=self.status, font=("Segoe UI", 9, "italic")).grid(row=5, column=0, columnspan=3, sticky="w", pady=(10,0))
-
+    
     def add_replacement(self):
         find = self.find_text.get().strip()
         replace = self.replace_text.get().strip()
         if find and replace:
-            self.plan_replacements[find] = replace
+            self.plan_replacements[find.lower()] = replace
             self.update_listbox()
             self.find_text.set("")
             self.replace_text.set("")
             self.save_config()
-            self.logger.info(f"Regra de substituição adicionada: '{find}' -> '{replace}'")
+            self.logger.info(f"Regra de substituição adicionada: '{find.lower()}' -> '{replace}'")
         else:
             self.logger.warning("Campos de substituição não podem estar vazios.")
 
@@ -231,6 +225,70 @@ class PDFtoCSVConverter:
             if self.pdf_path.get():
                 self.suggest_output_dir()
     
+    def prompt_for_rule_application(self, find_name, replace_name, found_plans):
+        prompt_win = tk.Toplevel(self.root)
+        prompt_win.title("Regra Não Aplicada")
+        prompt_win.geometry("500x350")
+        prompt_win.resizable(False, False)
+        
+        x = self.root.winfo_x() + (self.root.winfo_width() / 2) - 250
+        y = self.root.winfo_y() + (self.root.winfo_height() / 2) - 175
+        prompt_win.geometry(f"+{int(x)}+{int(y)}")
+
+        prompt_win.transient(self.root)
+        prompt_win.grab_set()
+
+        ttk.Label(prompt_win, text=f"A regra de substituição '{find_name}' -> '{replace_name}'\n não foi encontrada em nenhum plano.", font=("Segoe UI", 10)).pack(pady=10, padx=10)
+        
+        ttk.Label(prompt_win, text="Selecione um plano para aplicar esta regra:").pack(pady=(0, 5), padx=10)
+
+        list_frame = ttk.Frame(prompt_win)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10)
+        
+        scrollbar_v = ttk.Scrollbar(list_frame, orient=tk.VERTICAL)
+        scrollbar_h = ttk.Scrollbar(list_frame, orient=tk.HORIZONTAL)
+        
+        plan_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar_v.set, xscrollcommand=scrollbar_h.set, height=10, background='#2a2a2a', foreground='white', bd=0, relief='flat', highlightbackground='gray', selectbackground='#ffc700', selectforeground='black')
+        
+        scrollbar_v.config(command=plan_listbox.yview)
+        scrollbar_h.config(command=plan_listbox.xview)
+        
+        plan_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar_v.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar_h.pack(side=tk.BOTTOM, fill=tk.X)
+
+        for plan in found_plans:
+            plan_listbox.insert(tk.END, plan)
+        
+        result_container = {"selected_plan": None}
+
+        def on_ok():
+            selected_index = plan_listbox.curselection()
+            if selected_index:
+                selected_plan = plan_listbox.get(selected_index[0])
+                result_container["selected_plan"] = selected_plan
+            prompt_win.destroy()
+        
+        def on_cancel():
+            result_container["selected_plan"] = None
+            prompt_win.destroy()
+        
+        def on_close():
+            result_container["selected_plan"] = None
+            prompt_win.destroy()
+        
+        button_frame = ttk.Frame(prompt_win)
+        button_frame.pack(pady=10)
+
+        ttk.Button(button_frame, text="Aplicar Seleção", command=on_ok).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Manter Original", command=on_cancel).pack(side=tk.RIGHT, padx=5)
+
+        prompt_win.protocol("WM_DELETE_WINDOW", on_close)
+        
+        self.root.wait_window(prompt_win)
+        
+        return result_container["selected_plan"]
+    
     def extract_data(self, pdf_path):
         all_plans_data = {}
         bandeira_map = ["VISA", "Master Card", "Elo", "Hipercard", "American Express", "Outros", "Markup", "PIX"]
@@ -272,11 +330,6 @@ class PDFtoCSVConverter:
                         else:
                             current_plan_name = line_text
                             header_words = []
-                        
-                        for find_str, replace_str in self.plan_replacements.items():
-                            if find_str in current_plan_name:
-                                current_plan_name = current_plan_name.replace(find_str, replace_str)
-                                self.logger.info(f"Substituição aplicada: '{find_str}' por '{replace_str}'")
 
                         if self.debug_mode.get(): self.logger.info(f"Plano encontrado: {current_plan_name}")
                         
@@ -334,6 +387,48 @@ class PDFtoCSVConverter:
                 messagebox.showwarning("Aviso", "Nenhum dado estruturado foi encontrado no PDF.")
                 return
 
+            found_plans_names = list(all_plans.keys())
+            
+            for find_str, replace_str in list(self.plan_replacements.items()):
+                # Verifica se a regra de substituição já foi aplicada ou se o plano existe no PDF
+                if find_str.lower() not in [name.lower() for name in found_plans_names] and \
+                   replace_str.lower() not in [name.lower() for name in found_plans_names]:
+                    
+                    self.logger.warning(f"A regra '{find_str}' -> '{replace_str}' não foi encontrada. Solicitando ação do usuário.")
+                    
+                    selected_plan_to_replace = self.prompt_for_rule_application(find_str, replace_str, found_plans_names)
+                    
+                    if selected_plan_to_replace is None:
+                        # O usuário fechou a janela ou clicou em cancelar
+                        self.status.set("Conversão cancelada.")
+                        self.logger.info("Operação de conversão cancelada pelo usuário.")
+                        return
+                    
+                    if selected_plan_to_replace != "":
+                        # O usuário selecionou um novo plano.
+                        original_data = all_plans[selected_plan_to_replace]
+                        del all_plans[selected_plan_to_replace]
+                        all_plans[replace_str] = original_data
+                        
+                        # Remove a regra antiga e adiciona a nova, salvando no config.
+                        del self.plan_replacements[find_str] 
+                        self.plan_replacements[selected_plan_to_replace] = replace_str
+                        self.save_config()
+                        self.update_listbox()
+                        
+                        self.logger.info(f"Regra '{find_str}' -> '{replace_str}' aplicada a '{selected_plan_to_replace}'.")
+                        
+                        found_plans_names = list(all_plans.keys())
+                    else:
+                        # O usuário escolheu "Manter Original", não faz nada com a regra, apenas continua.
+                        self.logger.info(f"O nome original da regra '{find_str}' será mantido no resultado.")
+                        # A regra original é removida, pois não foi aplicada.
+                        del self.plan_replacements[find_str]
+                        self.save_config()
+                        self.update_listbox()
+                        
+            # O restante do código de conversão (que já tínhamos)
+            # ...
             base_name = os.path.splitext(os.path.basename(pdf_path))[0]
             csv_file = os.path.join(output_dir, f"{base_name}_unificado.csv")
             
@@ -438,7 +533,6 @@ class PDFtoCSVConverter:
             if self.status.get() != "Conversão concluída!":
                 self.status.set("Pronto")
 
-# --- Código para iniciar a aplicação ---
 if __name__ == "__main__":
     root = tk.Tk()
     app = PDFtoCSVConverter(root)
